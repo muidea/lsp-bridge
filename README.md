@@ -6,6 +6,7 @@
 一个最小可运行的 Go MCP Server，用于把 MCP tool 调用转换为本地 LSP 请求。
 
 外部接入请优先阅读 [集成使用说明](docs/integration.md)。
+DoD 验证状态见 [docs/dod-status.md](docs/dod-status.md)。
 
 当前提供三个工具：
 

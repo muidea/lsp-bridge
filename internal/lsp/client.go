@@ -49,8 +49,9 @@ type Client struct {
 }
 
 type openedDocument struct {
-	Text    string
-	Version int
+	Text       string
+	Version    int
+	MemoryOnly bool
 }
 
 func NewClient(cfg Config) (*Client, error) {
@@ -170,15 +171,26 @@ func (c *Client) EnsureDidOpen(path string) error {
 		return fmt.Errorf("resolve file path: %w", err)
 	}
 
+	c.openedMu.Lock()
+	if prev, ok := c.opened[abs]; ok && prev.MemoryOnly {
+		c.openedMu.Unlock()
+		return nil
+	}
+	c.openedMu.Unlock()
+
 	content, err := os.ReadFile(abs)
 	if err != nil {
 		return fmt.Errorf("read file: %w", err)
 	}
 
-	return c.SyncContent(abs, string(content))
+	return c.syncContent(abs, string(content), false)
 }
 
 func (c *Client) SyncContent(path, text string) error {
+	return c.syncContent(path, text, true)
+}
+
+func (c *Client) syncContent(path, text string, memoryOnly bool) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("resolve file path: %w", err)
@@ -195,7 +207,7 @@ func (c *Client) SyncContent(path, text string) error {
 	if ok {
 		version = prev.Version + 1
 	}
-	c.opened[abs] = openedDocument{Text: text, Version: version}
+	c.opened[abs] = openedDocument{Text: text, Version: version, MemoryOnly: memoryOnly}
 	c.openedMu.Unlock()
 
 	if !ok {
