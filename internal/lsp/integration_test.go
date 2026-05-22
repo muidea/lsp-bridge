@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,7 +16,8 @@ func TestClientWithGopls(t *testing.T) {
 		t.Skip("set LSP_BRIDGE_INTEGRATION=1 to run integration tests")
 	}
 
-	if _, err := os.Stat("/home/rangh/go/bin/gopls"); err != nil {
+	goplsPath, err := exec.LookPath("gopls")
+	if err != nil {
 		t.Skip("gopls not available")
 	}
 
@@ -36,7 +38,7 @@ func main() {
 `)
 
 	client, err := NewClient(Config{
-		Command: []string{"/home/rangh/go/bin/gopls", "serve"},
+		Command: []string{goplsPath, "serve"},
 		RootDir: root,
 		Logger:  log.New(os.Stderr, "test-lsp: ", log.LstdFlags),
 	})

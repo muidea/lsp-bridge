@@ -11,7 +11,7 @@
 
 2. 读取或修改代码前，用 `lsp_definition` 和 `lsp_hover` 确认符号真实含义。
    - 参数行列号均为 0-based。
-   - `path` 使用绝对路径最稳妥。
+   - `path` 使用 MCP Client 与 LSP Bridge 都可访问的规范路径。
 
 3. 修改文件内容后，如果内容还没有落盘，必须立刻调用 `lsp_sync`。
    - `path`: 被修改文件路径。

@@ -5,6 +5,8 @@
 
 一个最小可运行的 Go MCP Server，用于把 MCP tool 调用转换为本地 LSP 请求。
 
+外部接入请优先阅读 [集成使用说明](docs/integration.md)。
+
 当前提供三个工具：
 
 - `lsp_initialize`
@@ -59,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/in
 可选环境变量：
 
 ```bash
-LSP_BRIDGE_INSTALL_DIR=/opt/lsp-bridge bash scripts/install.sh
+LSP_BRIDGE_INSTALL_DIR=./lsp-bridge-install bash scripts/install.sh
 LSP_BRIDGE_VERSION=v0.1.0 bash scripts/install.sh
 INSTALL_PYRIGHT=0 INSTALL_GOPLS=0 bash scripts/install.sh
 ```
@@ -139,7 +141,7 @@ git push origin v0.1.0
 
 ```json
 {
-  "root_path": "/path/to/project",
+  "root_path": "<project-root>",
   "lang_id": "python"
 }
 ```
@@ -148,7 +150,7 @@ git push origin v0.1.0
 
 ```json
 {
-  "path": "/path/to/file.py",
+  "path": "<project-root>/file.py",
   "content": "print('hello')\n"
 }
 ```
@@ -157,7 +159,7 @@ git push origin v0.1.0
 
 ```json
 {
-  "path": "/path/to/file.py",
+  "path": "<project-root>/file.py",
   "line": 0,
   "col": 0
 }
@@ -167,7 +169,7 @@ git push origin v0.1.0
 
 ```json
 {
-  "path": "/path/to/file.py",
+  "path": "<project-root>/file.py",
   "line": 0,
   "col": 0
 }
@@ -177,7 +179,7 @@ git push origin v0.1.0
 
 ```json
 {
-  "path": "/path/to/file.py"
+  "path": "<project-root>/file.py"
 }
 ```
 
@@ -185,7 +187,7 @@ git push origin v0.1.0
 
 ```json
 {
-  "path": "/path/to/file.py",
+  "path": "<project-root>/file.py",
   "line": 0,
   "col": 0
 }

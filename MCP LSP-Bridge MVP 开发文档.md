@@ -25,7 +25,7 @@
 | 工具名称 | 核心参数 | 目标说明 |
 | :--- | :--- | :--- |
 | `lsp_initialize` | `root_path`, `lang_id` | 初始化工作区，探测环境，启动对应语言的子进程。 |
-| `lsp_definition` | `path`, `line`, `col` | 精确跳转。支持跨文件跳转，返回绝对路径与行列号。 |
+| `lsp_definition` | `path`, `line`, `col` | 精确跳转。支持跨文件跳转，返回文件路径与行列号。 |
 | `lsp_hover` | `path`, `line`, `col` | 获取类型签名、接口说明及文档注释。 |
 | `lsp_diagnostics`| `path` | 获取当前文件的语法/逻辑错误，支持 LLM 自我修复 Bug。 |
 | `lsp_references` | `path`, `line`, `col` | 寻找引用点，帮助 LLM 进行重构分析。 |
@@ -41,7 +41,7 @@
 *   **VFS 层**：维护一个 `Map[FilePath]Hash`。每次执行 LSP 查询前，对比磁盘/内存 Hash，若不一致则自动调用 `lsp_sync`。
 
 ### 3.2 路径与环境自适应
-*   **URI 转换**：自动处理 Windows (`file:///C:/...`) 与 Unix (`file:///root/...`) 的路径差异。
+*   **URI 转换**：自动处理 Windows 与 Unix 的 `file://` URI 路径差异。
 *   **环境探测**：支持自动读取项目中的 `venv` (Python), `node_modules` (TS), `go.mod` (Go) 以配置 LSP 运行参数。
 
 ---
