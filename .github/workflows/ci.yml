@@ -31,6 +31,11 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Install integration LSP servers
+        run: |
+          npm install -g pyright typescript typescript-language-server bash-language-server
+          rustup component add rust-analyzer
+
       - name: Check scripts
         run: |
           bash -n scripts/install.sh
@@ -38,6 +43,12 @@ jobs:
 
       - name: Run tests
         run: go test ./...
+
+      - name: Run integration tests
+        env:
+          LSP_BRIDGE_INTEGRATION: "1"
+          LSP_BRIDGE_STRICT_INTEGRATION: "1"
+        run: go test ./internal/lsp -run 'TestClientWithGopls|TestClientDefinitionAcrossInstalledLanguageServers' -count=1
 
       - name: Run race tests
         run: go test -race ./...

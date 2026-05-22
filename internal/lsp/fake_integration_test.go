@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -95,6 +96,70 @@ func TestClientSyncDiagnosticsReferencesAndConcurrency(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Fatal(err)
+	}
+}
+
+func TestDefinitionLatencyEnvelopeWithFakeLSP(t *testing.T) {
+	client, filePath := newFakeClient(t, false)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := client.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	if err := client.SyncContent(filePath, "package main\n\nvar value int\n"); err != nil {
+		t.Fatalf("SyncContent failed: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		if _, err := client.Definition(ctx, filePath, 2, 4); err != nil {
+			t.Fatalf("warmup definition failed: %v", err)
+		}
+	}
+
+	const iterations = 50
+	start := time.Now()
+	for i := 0; i < iterations; i++ {
+		if _, err := client.Definition(ctx, filePath, 2, 4); err != nil {
+			t.Fatalf("definition failed: %v", err)
+		}
+	}
+	avg := time.Since(start) / iterations
+	if avg > 50*time.Millisecond {
+		t.Fatalf("average definition latency = %s, want <= 50ms", avg)
+	}
+}
+
+func TestMemoryEnvelopeWithThreeFakeLSPClients(t *testing.T) {
+	clients := make([]*Client, 0, 3)
+	defer func() {
+		for _, client := range clients {
+			_ = client.Close()
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for i := 0; i < 3; i++ {
+		client, filePath := newFakeClient(t, false)
+		clients = append(clients, client)
+		if err := client.Initialize(ctx); err != nil {
+			t.Fatalf("Initialize %d failed: %v", i, err)
+		}
+		if err := client.SyncContent(filePath, "package main\n\nvar value int\n"); err != nil {
+			t.Fatalf("SyncContent %d failed: %v", i, err)
+		}
+	}
+
+	runtime.GC()
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+	const maxAlloc = 64 * 1024 * 1024
+	if stats.Alloc > maxAlloc {
+		t.Fatalf("heap allocation = %d bytes, want <= %d", stats.Alloc, maxAlloc)
 	}
 }
 

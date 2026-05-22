@@ -272,9 +272,19 @@ func (c *Client) Definition(ctx context.Context, path string, line, character in
 		return locations, nil
 	}
 
+	var links []LocationLink
+	if err := json.Unmarshal(raw, &links); err == nil {
+		return locationsFromLinks(links), nil
+	}
+
 	var single Location
 	if err := json.Unmarshal(raw, &single); err == nil {
 		return []Location{single}, nil
+	}
+
+	var link LocationLink
+	if err := json.Unmarshal(raw, &link); err == nil {
+		return locationsFromLinks([]LocationLink{link}), nil
 	}
 
 	return nil, fmt.Errorf("decode definition response: %s", string(raw))
@@ -344,6 +354,17 @@ func (c *Client) References(ctx context.Context, path string, line, character in
 		return nil, fmt.Errorf("decode references response: %w", err)
 	}
 	return locations, nil
+}
+
+func locationsFromLinks(links []LocationLink) []Location {
+	locations := make([]Location, 0, len(links))
+	for _, link := range links {
+		locations = append(locations, Location{
+			URI:   link.TargetURI,
+			Range: link.TargetSelectionRange,
+		})
+	}
+	return locations
 }
 
 func (c *Client) Diagnostics(path string) ([]Diagnostic, error) {

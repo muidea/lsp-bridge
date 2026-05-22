@@ -92,6 +92,12 @@ type Location struct {
 	Range Range  `json:"range"`
 }
 
+type LocationLink struct {
+	TargetURI            string `json:"targetUri"`
+	TargetRange          Range  `json:"targetRange"`
+	TargetSelectionRange Range  `json:"targetSelectionRange"`
+}
+
 type Range struct {
 	Start Position `json:"start"`
 	End   Position `json:"end"`
