@@ -1,7 +1,12 @@
 # Go build artifacts
 /lsp-bridge
+/bin/
+/dist/
 *.test
 *.out
+
+# Local dependency installs created by scripts/install.sh
+/.deps/
 
 # Local editor and OS files
 .DS_Store

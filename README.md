@@ -20,6 +20,38 @@ go run ./cmd/lsp-bridge
 go run -buildvcs=false ./cmd/lsp-bridge
 ```
 
+## 在线安装
+
+安装脚本会自动检测 GitHub 最新发布版本，下载当前系统和架构匹配的二进制包，并安装到执行命令时的当前目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/install.sh | bash
+```
+
+安装后的目录结构：
+
+```text
+./bin/lsp-bridge
+./bin/pyright-langserver
+./bin/gopls
+./.deps/node/
+```
+
+安装器会自动处理缺失依赖：
+
+- 缺少 `curl`/`wget`、`tar` 等基础工具时，使用系统包管理器安装
+- 缺少 `pyright-langserver` 时，安装 `node`/`npm` 并在当前目录下安装 `pyright`
+- 缺少 `gopls` 时，安装 `go` 并把 `gopls` 安装到当前目录的 `bin`
+- 自动写入 `LSP_BRIDGE_HOME` 和 `PATH` 到当前用户的 shell 配置文件
+
+可选环境变量：
+
+```bash
+LSP_BRIDGE_INSTALL_DIR=/opt/lsp-bridge bash scripts/install.sh
+LSP_BRIDGE_VERSION=v0.1.0 bash scripts/install.sh
+INSTALL_PYRIGHT=0 INSTALL_GOPLS=0 bash scripts/install.sh
+```
+
 ## 验证
 
 ```bash
@@ -31,6 +63,30 @@ go build -buildvcs=false ./...
 
 ```bash
 LSP_BRIDGE_INTEGRATION=1 go test ./internal/lsp -run TestClientWithGopls -count=1
+```
+
+## 发布
+
+生成 release 产物：
+
+```bash
+scripts/release.sh v0.1.0
+```
+
+产物会输出到 `dist/`：
+
+```text
+lsp-bridge_v0.1.0_linux_amd64.tar.gz
+lsp-bridge_v0.1.0_linux_arm64.tar.gz
+lsp-bridge_v0.1.0_darwin_amd64.tar.gz
+lsp-bridge_v0.1.0_darwin_arm64.tar.gz
+checksums.txt
+```
+
+如果已安装并登录 GitHub CLI，可以直接发布：
+
+```bash
+PUBLISH=1 scripts/release.sh v0.1.0
 ```
 
 ## 默认支持
