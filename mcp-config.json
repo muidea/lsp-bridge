@@ -1,0 +1,19 @@
+{
+  "languages": {
+    "go": {
+      "command": ["gopls", "serve"]
+    },
+    "rust": {
+      "command": ["rust-analyzer"]
+    },
+    "python": {
+      "command": ["pyright-langserver", "--stdio"]
+    },
+    "typescript": {
+      "command": ["typescript-language-server", "--stdio"]
+    },
+    "shell": {
+      "command": ["bash-language-server", "start"]
+    }
+  }
+}

@@ -1,81 +1,80 @@
 # MCP LSP-Bridge MVP 开发文档
 
-**版本:** 0.1 (MVP)  
-**目标:** 实现 MCP 与 LSP 的基础双向通信，提供最核心的代码导航能力。
+## 1. 项目目标 (Project Goals)
+
+### 1.1 语义级代码感知 (Semantic Awareness)
+*   **目标**：消除 LLM 对代码理解的“幻觉”。
+*   **指标**：LLM 必须能够通过工具获取 100% 准确的符号定义位置、变量类型签名和全项目引用关系。
+
+### 1.2 工业级多语言覆盖 (Multi-language Support)
+*   **目标**：单一 MCP Server 实例无缝切换支持 5 种核心语言。
+*   **指标**：支持 Go (`gopls`), Rust (`rust-analyzer`), Python (`pyright`), TypeScript (`tsserver`), Shell (`bash-lsp`)，且各语言切换延迟小于 1s。
+
+### 1.3 强实时一致性 (Real-time Consistency)
+*   **目标**：确保 LSP 状态与 LLM 编辑内容高度同步。
+*   **指标**：在 LLM 执行 `write_file` 操作后，任何紧随其后的 LSP 查询请求必须基于更新后的代码内容，状态滞后率为 0。
+
+### 1.4 高效 Token 利用 (Token Efficiency)
+*   **目标**：防止 LSP 冗长响应撑爆上下文。
+*   **指标**：对 LSP 返回的复杂 JSON 进行极致压缩，将原始数据量缩减 70% 以上，仅保留核心语义信息。
 
 ---
 
-## 1. MVP 核心目标 (Goal)
-构建一个基于 Golang 的桥接程序，能够启动本地 LSP 进程（以 Python Pyright 为例），并将 LLM 的“查看定义”和“获取信息”请求转换为标准 LSP 调用。
+## 2. 核心工具定义 (MCP Tools)
+
+| 工具名称 | 核心参数 | 目标说明 |
+| :--- | :--- | :--- |
+| `lsp_initialize` | `root_path`, `lang_id` | 初始化工作区，探测环境，启动对应语言的子进程。 |
+| `lsp_definition` | `path`, `line`, `col` | 精确跳转。支持跨文件跳转，返回绝对路径与行列号。 |
+| `lsp_hover` | `path`, `line`, `col` | 获取类型签名、接口说明及文档注释。 |
+| `lsp_diagnostics`| `path` | 获取当前文件的语法/逻辑错误，支持 LLM 自我修复 Bug。 |
+| `lsp_references` | `path`, `line`, `col` | 寻找引用点，帮助 LLM 进行重构分析。 |
+| `lsp_sync` | `path`, `content` | **强制同步**。向 LSP 发送 `didChange` 通知，更新服务器内存 Buffer。 |
 
 ---
 
-## 2. 最小功能范围 (Scope)
+## 3. 系统架构与技术实现
 
-### 2.1 核心工具 (Tools)
-MVP 阶段仅提供最基础、价值最高的三个接口：
+### 3.1 核心架构：双向协议异步桥接器
+*   **Transport 层**：基于 Go `os/exec` 管理子进程 Stdio。
+*   **JSON-RPC 层**：实现 `Header + Content` 解析协议。使用 `sync.Map` 映射 Request ID 与 Response Channel。
+*   **VFS 层**：维护一个 `Map[FilePath]Hash`。每次执行 LSP 查询前，对比磁盘/内存 Hash，若不一致则自动调用 `lsp_sync`。
 
-1.  **`initialize_lsp`**: 
-    *   功能：指定项目根目录，启动对应的 LSP 进程。
-    *   DoD：成功收到 LSP 的 `initialize` 确认响应。
-2.  **`get_definition`**: 
-    *   功能：根据文件路径和行列号，获取符号定义的位置（文件、行、列）。
-    *   DoD：LLM 发送请求后，能准确返回对应函数/类的源码位置。
-3.  **`get_hover`**: 
-    *   功能：获取指定位置的类型签名和文档注释。
-    *   DoD：返回简洁的 Markdown 字符串，供 LLM 理解变量类型。
-
-### 2.2 支持范围
-*   **首选支持语言**: Python (需预装 `pyright`) 或 Go (`gopls`)。
-*   **通信协议**: 基于 Stdio 的 JSON-RPC 2.0。
-*   **文件同步**: 采用“全量简单同步”模式（即调用前通过 `didOpen` 发送文件全文，不处理复杂的增量更新）。
+### 3.2 路径与环境自适应
+*   **URI 转换**：自动处理 Windows (`file:///C:/...`) 与 Unix (`file:///root/...`) 的路径差异。
+*   **环境探测**：支持自动读取项目中的 `venv` (Python), `node_modules` (TS), `go.mod` (Go) 以配置 LSP 运行参数。
 
 ---
 
-## 3. 关键技术方案
+## 4. 关键技术难点解决方案
 
-### 3.1 架构简图
-`LLM (MCP Client)` <-> `MCP Server (Go)` <-> `LSP Server (Process)`
-
-### 3.2 技术栈
-*   **语言**: Golang 1.21+
-*   **核心库**: 
-    *   `github.com/mark3labs/mcp-go`: 用于构建 MCP Server 框架。
-    *   `golang.org/x/tools/lsp/protocol`: 仅引用其结构体定义，确保协议标准。
-
-### 3.3 状态管理
-*   MVP 阶段仅维护一个 `LSPInstance` 映射表，记录当前活跃的 LSP 进程 PID 及其对应的 Stdio 管道。
+1.  **慢速启动 (Rust-analyzer)**：采用“预加载+异步阻塞”策略。在项目启动时立即拉起进程，若查询时索引未完成，返回特定错误码引导 LLM 稍后重试。
+2.  **结果截断**：对于 `references` 返回过多的情况，仅提取前 10 个核心引用并附加“结果已截断”标识，保护 Context Window。
+3.  **僵尸进程预防**：利用 Go 的 `context` 机制和 `defer cmd.Process.Kill()`，确保 MCP Server 退出时所有 LSP 实例被强制清理。
 
 ---
 
-## 4. 完成定义 (Definition of Done - DoD)
+## 5. 完成定义 (Definition of Done - DoD)
 
-### 4.1 核心链路闭环
-- [ ] **启动能力**: MCP Server 启动后，能通过工具调用成功拉起本地 `pyright-langserver --stdio` 进程。
-- [ ] **协议转换**: 成功将 MCP 的 `call_tool` 参数转换为符合 LSP 规范的 JSON-RPC 报文。
-- [ ] **响应处理**: 能够正确解析 LSP 返回的带有 `Content-Length` 头的 Stdio 流，并提取 `result` 字段。
+只有满足以下所有清单要求，本项目才可宣布研发完成并交付：
 
-### 4.2 交互测试用例
-- [ ] **测试 1**: 在一个 Python 项目中，针对 `import os`，调用 `get_definition` 能够返回 `os.py` 的绝对路径。
-- [ ] **测试 2**: 针对一个已知函数调用 `get_hover`，返回结果中包含该函数的 `def` 签名。
+### 5.1 功能验收 (Functional)
+- [ ] **多语言验证**：在测试套件中，Go、Rust、Python、TS、Shell 五种语言的 `get_definition` 全部通过，能准确返回对应库函数的源码路径。
+- [ ] **同步可靠性**：手动修改代码（不保存磁盘）后，通过 `lsp_sync` 接口同步，随后发起的 `lsp_hover` 能准确反映出修改后的新类型。
+- [ ] **错误反馈**：故意制造语法错误，`lsp_diagnostics` 能够准确捕获错误描述、行号和错误级别。
 
-### 4.3 鲁棒性要求
-- [ ] 如果 LSP 进程意外退出，MCP Server 不会崩溃，并能在下次请求时尝试重新启动或报错。
-- [ ] 支持基本的路径转换（处理本地文件路径到 `file:///` URI 的转换）。
+### 5.2 性能验收 (Performance)
+- [ ] **响应时延**：在 LSP 预热完成后，基础查询（Definition/Hover）的 MCP 内部处理耗时（不含 LSP 本身计算）应小于 **50ms**。
+- [ ] **内存控制**：同时开启 3 门语言支持时，MCP Server 程序自身（不含子进程）常驻内存占用应低于 **64MB**。
 
----
+### 5.3 稳定性验收 (Stability)
+- [ ] **自动重启**：手动 `kill` 掉某个 LSP 子进程，Server 必须能在下次请求时自动重启该进程并完成初始化。
+- [ ] **路径兼容**：在 Windows、Linux 两个平台上测试通过，路径识别无歧义。
+- [ ] **并发安全**：使用 10 个并发 Goroutine 模拟 LLM 同时发起的不同查询，Request ID 匹配无误，无数据竞争（通过 `go test -race` 检查）。
 
-## 5. MVP 开发计划 (2-3天)
-
-*   **Day 1**: 搭建 Go MCP 基础框架，实现 `exec.Command` 管理子进程，处理 Stdio 的异步读取。
-*   **Day 2**: 实现 LSP Header 解析逻辑 (`Content-Length`)，封装 `initialize` 和 `get_definition` 请求。
-*   **Day 3**: 编写简单的路径映射逻辑，进行 Python/Go 项目的端到端联调。
-
----
-
-## 6. MVP 之后 (Post-MVP)
-*   支持 Rust, TS 等更多语言。
-*   实现 `textDocument/didChange` 增量同步以提升大型项目性能。
-*   支持诊断信息（Diagnostics）主动推送。
+### 5.4 交付物清单 (Deliverables)
+- [ ] 完整的 Go 源代码。
+- [ ] `mcp-config.json` 示例文件（包含各语言 LSP 路径配置）。
+- [ ] 针对 LLM 的 System Prompt 建议（指导 AI 如何高效组合使用这些 LSP Tool）。
 
 ---

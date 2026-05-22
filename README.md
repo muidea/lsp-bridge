@@ -7,6 +7,15 @@
 
 当前提供三个工具：
 
+- `lsp_initialize`
+- `lsp_sync`
+- `lsp_definition`
+- `lsp_hover`
+- `lsp_diagnostics`
+- `lsp_references`
+
+兼容旧工具名：
+
 - `initialize_lsp`
 - `get_definition`
 - `get_hover`
@@ -108,34 +117,78 @@ git push origin v0.1.0
 
 - Python: `pyright-langserver --stdio`
 - Go: `gopls serve`
+- Rust: `rust-analyzer`
+- TypeScript/JavaScript: `typescript-language-server --stdio`
+- Shell: `bash-language-server start`
+
+可通过 `mcp-config.json` 覆盖各语言命令：
+
+```json
+{
+  "languages": {
+    "python": {
+      "command": ["pyright-langserver", "--stdio"]
+    }
+  }
+}
+```
 
 ## 工具参数
 
-### `initialize_lsp`
+### `lsp_initialize`
 
 ```json
 {
-  "root_dir": "/path/to/project",
-  "server": "pyright"
+  "root_path": "/path/to/project",
+  "lang_id": "python"
 }
 ```
 
-### `get_definition`
+### `lsp_sync`
 
 ```json
 {
-  "file_path": "/path/to/file.py",
+  "path": "/path/to/file.py",
+  "content": "print('hello')\n"
+}
+```
+
+### `lsp_definition`
+
+```json
+{
+  "path": "/path/to/file.py",
   "line": 0,
-  "character": 0
+  "col": 0
 }
 ```
 
-### `get_hover`
+### `lsp_hover`
 
 ```json
 {
-  "file_path": "/path/to/file.py",
+  "path": "/path/to/file.py",
   "line": 0,
-  "character": 0
+  "col": 0
 }
 ```
+
+### `lsp_diagnostics`
+
+```json
+{
+  "path": "/path/to/file.py"
+}
+```
+
+### `lsp_references`
+
+```json
+{
+  "path": "/path/to/file.py",
+  "line": 0,
+  "col": 0
+}
+```
+
+行列号均为 0-based。更多 LLM 使用建议见 [docs/llm-system-prompt.md](docs/llm-system-prompt.md)。

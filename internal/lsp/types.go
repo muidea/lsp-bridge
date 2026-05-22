@@ -77,6 +77,16 @@ type TextDocumentPositionParams struct {
 	Position     Position               `json:"position"`
 }
 
+type ReferenceParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	Context      ReferenceContext       `json:"context"`
+}
+
+type ReferenceContext struct {
+	IncludeDeclaration bool `json:"includeDeclaration"`
+}
+
 type Location struct {
 	URI   string `json:"uri"`
 	Range Range  `json:"range"`
@@ -100,4 +110,18 @@ type MarkedString struct {
 type Hover struct {
 	Contents interface{} `json:"contents"`
 	Range    *Range      `json:"range,omitempty"`
+}
+
+type PublishDiagnosticsParams struct {
+	URI         string       `json:"uri"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+	Version     *int         `json:"version,omitempty"`
+}
+
+type Diagnostic struct {
+	Range    Range       `json:"range"`
+	Severity int         `json:"severity,omitempty"`
+	Code     interface{} `json:"code,omitempty"`
+	Source   string      `json:"source,omitempty"`
+	Message  string      `json:"message"`
 }

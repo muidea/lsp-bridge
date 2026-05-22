@@ -25,23 +25,27 @@ type Config struct {
 	Command []string
 	RootDir string
 	Logger  *log.Logger
+	Env     []string
 }
 
 type Client struct {
-	cmd       *exec.Cmd
-	rootDir   string
-	logger    *log.Logger
-	stdin     io.WriteCloser
-	stdout    io.ReadCloser
-	stderr    io.ReadCloser
-	writeMu   sync.Mutex
-	pendingMu sync.Mutex
-	pending   map[int64]chan ResponseMessage
-	nextID    atomic.Int64
-	openedMu  sync.Mutex
-	opened    map[string]openedDocument
-	closed    atomic.Bool
-	waitErr   chan error
+	cmd           *exec.Cmd
+	rootDir       string
+	logger        *log.Logger
+	stdin         io.WriteCloser
+	stdout        io.ReadCloser
+	stderr        io.ReadCloser
+	writeMu       sync.Mutex
+	pendingMu     sync.Mutex
+	pending       map[int64]chan ResponseMessage
+	nextID        atomic.Int64
+	openedMu      sync.Mutex
+	opened        map[string]openedDocument
+	diagnosticsMu sync.RWMutex
+	diagnostics   map[string][]Diagnostic
+	closed        atomic.Bool
+	exited        atomic.Bool
+	waitErr       chan error
 }
 
 type openedDocument struct {
@@ -64,6 +68,9 @@ func NewClient(cfg Config) (*Client, error) {
 
 	cmd := exec.Command(cfg.Command[0], cfg.Command[1:]...)
 	cmd.Dir = rootDir
+	if len(cfg.Env) > 0 {
+		cmd.Env = append(os.Environ(), cfg.Env...)
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -79,15 +86,16 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 
 	client := &Client{
-		cmd:     cmd,
-		rootDir: rootDir,
-		logger:  cfg.Logger,
-		stdin:   stdin,
-		stdout:  stdout,
-		stderr:  stderr,
-		pending: make(map[int64]chan ResponseMessage),
-		opened:  make(map[string]openedDocument),
-		waitErr: make(chan error, 1),
+		cmd:         cmd,
+		rootDir:     rootDir,
+		logger:      cfg.Logger,
+		stdin:       stdin,
+		stdout:      stdout,
+		stderr:      stderr,
+		pending:     make(map[int64]chan ResponseMessage),
+		opened:      make(map[string]openedDocument),
+		diagnostics: make(map[string][]Diagnostic),
+		waitErr:     make(chan error, 1),
 	}
 
 	if client.logger == nil {
@@ -112,6 +120,10 @@ func (c *Client) PID() int {
 	return c.cmd.Process.Pid
 }
 
+func (c *Client) Exited() bool {
+	return c.exited.Load()
+}
+
 func (c *Client) Initialize(ctx context.Context) error {
 	params := InitializeParams{
 		ProcessID: os.Getpid(),
@@ -123,6 +135,10 @@ func (c *Client) Initialize(ctx context.Context) error {
 				},
 				"hover": map[string]any{
 					"contentFormat": []string{"markdown", "plaintext"},
+				},
+				"references": map[string]any{},
+				"publishDiagnostics": map[string]any{
+					"relatedInformation": true,
 				},
 			},
 			"workspace": map[string]any{},
@@ -159,8 +175,14 @@ func (c *Client) EnsureDidOpen(path string) error {
 		return fmt.Errorf("read file: %w", err)
 	}
 
-	text := string(content)
+	return c.SyncContent(abs, string(content))
+}
 
+func (c *Client) SyncContent(path, text string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve file path: %w", err)
+	}
 	uri := PathToURI(abs)
 
 	c.openedMu.Lock()
@@ -279,6 +301,55 @@ func (c *Client) Hover(ctx context.Context, path string, line, character int) (*
 	return &hover, nil
 }
 
+func (c *Client) References(ctx context.Context, path string, line, character int) ([]Location, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve file path: %w", err)
+	}
+	if err := c.EnsureDidOpen(abs); err != nil {
+		return nil, err
+	}
+
+	params := ReferenceParams{
+		TextDocument: TextDocumentIdentifier{URI: PathToURI(abs)},
+		Position: Position{
+			Line:      line,
+			Character: character,
+		},
+		Context: ReferenceContext{IncludeDeclaration: true},
+	}
+
+	raw, err := c.request(ctx, "textDocument/references", params)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.Equal(raw, []byte("null")) {
+		return nil, nil
+	}
+
+	var locations []Location
+	if err := json.Unmarshal(raw, &locations); err != nil {
+		return nil, fmt.Errorf("decode references response: %w", err)
+	}
+	return locations, nil
+}
+
+func (c *Client) Diagnostics(path string) ([]Diagnostic, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve file path: %w", err)
+	}
+	uri := PathToURI(abs)
+
+	c.diagnosticsMu.RLock()
+	defer c.diagnosticsMu.RUnlock()
+
+	items := c.diagnostics[uri]
+	out := make([]Diagnostic, len(items))
+	copy(out, items)
+	return out, nil
+}
+
 func (c *Client) Close() error {
 	if !c.closed.CompareAndSwap(false, true) {
 		return nil
@@ -315,6 +386,7 @@ func (c *Client) Close() error {
 
 func (c *Client) waitLoop() {
 	err := c.cmd.Wait()
+	c.exited.Store(true)
 	select {
 	case c.waitErr <- err:
 	default:
@@ -361,6 +433,10 @@ func (c *Client) readLoop() {
 		}
 
 		if envelope.ID == nil {
+			if envelope.Method == "textDocument/publishDiagnostics" {
+				c.storeDiagnostics(envelope.Params)
+				continue
+			}
 			if envelope.Method != "" {
 				c.logger.Printf("ignore lsp notification: %s", envelope.Method)
 			}
@@ -387,6 +463,18 @@ func (c *Client) readLoop() {
 	}
 }
 
+func (c *Client) storeDiagnostics(raw json.RawMessage) {
+	var params PublishDiagnosticsParams
+	if err := json.Unmarshal(raw, &params); err != nil {
+		c.logger.Printf("decode diagnostics notification: %v", err)
+		return
+	}
+
+	c.diagnosticsMu.Lock()
+	c.diagnostics[params.URI] = params.Diagnostics
+	c.diagnosticsMu.Unlock()
+}
+
 func (c *Client) failPending(err error) {
 	if err == nil {
 		err = errClientClosed
@@ -409,6 +497,9 @@ func (c *Client) failPending(err error) {
 
 func (c *Client) request(ctx context.Context, method string, params interface{}) ([]byte, error) {
 	if c.closed.Load() {
+		return nil, errClientClosed
+	}
+	if c.exited.Load() {
 		return nil, errClientClosed
 	}
 
@@ -529,6 +620,10 @@ func detectLanguage(path string) string {
 		return "javascript"
 	case ".jsx":
 		return "javascriptreact"
+	case ".rs":
+		return "rust"
+	case ".sh", ".bash":
+		return "shellscript"
 	default:
 		return "plaintext"
 	}
