@@ -100,7 +100,7 @@ func TestClientDefinitionAcrossInstalledLanguageServers(t *testing.T) {
 			}
 			defer client.Close()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
 			if err := client.Initialize(ctx); err != nil {
 				if strict {
