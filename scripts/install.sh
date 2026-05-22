@@ -9,6 +9,14 @@ INSTALL_GOPLS="${INSTALL_GOPLS:-1}"
 
 BIN_DIR="${INSTALL_ROOT}/bin"
 NODE_PREFIX="${INSTALL_ROOT}/.deps/node"
+CLEANUP_DIR=""
+
+cleanup() {
+  if [ -n "${CLEANUP_DIR:-}" ]; then
+    rm -rf "$CLEANUP_DIR"
+  fi
+}
+trap cleanup EXIT
 
 log() {
   printf '[lsp-bridge install] %s\n' "$*"
@@ -139,8 +147,8 @@ install_lsp_bridge_binary() {
 
   mkdir -p "$BIN_DIR"
   tmp="$(mktemp -d)"
+  CLEANUP_DIR="$tmp"
   archive="${tmp}/${asset}"
-  trap 'rm -rf "$tmp"' EXIT
 
   fetch_file "$url" "$archive"
   tar -xzf "$archive" -C "$tmp"
