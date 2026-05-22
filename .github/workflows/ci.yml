@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test and Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check scripts
+        run: |
+          bash -n scripts/install.sh
+          bash -n scripts/release.sh
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build
+        run: go build -buildvcs=false ./...
+
+      - name: Build release archives
+        run: scripts/release.sh ci
+
+      - name: Upload release archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-bridge-ci-dist
+          path: dist/
+          if-no-files-found: error

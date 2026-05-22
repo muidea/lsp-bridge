@@ -1,5 +1,8 @@
 # MCP LSP Bridge
 
+[![CI](https://github.com/muidea/lsp-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/muidea/lsp-bridge/actions/workflows/ci.yml)
+[![Release](https://github.com/muidea/lsp-bridge/actions/workflows/release.yml/badge.svg)](https://github.com/muidea/lsp-bridge/actions/workflows/release.yml)
+
 一个最小可运行的 Go MCP Server，用于把 MCP tool 调用转换为本地 LSP 请求。
 
 当前提供三个工具：
@@ -87,6 +90,18 @@ checksums.txt
 
 ```bash
 PUBLISH=1 scripts/release.sh v0.1.0
+```
+
+GitHub Actions 已配置：
+
+- `CI`: 推送到 `master`/`main` 或发起 PR 时，执行脚本语法检查、`go test ./...`、`go build -buildvcs=false ./...` 和 release 归档构建
+- `Release`: 推送 `v*` tag 时，构建 release 归档并发布到 GitHub Releases
+
+发布新版本：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
 ## 默认支持
