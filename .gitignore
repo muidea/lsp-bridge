@@ -1,0 +1,12 @@
+# Go build artifacts
+/lsp-bridge
+*.test
+*.out
+
+# Local editor and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Local integration scratch data
+/tmp/
