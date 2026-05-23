@@ -4,24 +4,28 @@
 
 ## 1. 安装
 
-推荐在一个固定目录执行在线安装脚本。安装器会下载 GitHub 最新发布版本，并把二进制安装到当前目录的 `bin/` 下。
+安装器会下载 GitHub 最新发布版本。未指定安装目录时，默认使用当前用户本地目录 `$HOME/.local`，并把二进制安装到 `$HOME/.local/bin/` 下。
 
 ```bash
-mkdir -p ./lsp-bridge-install
-cd ./lsp-bridge-install
 curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/install.sh | bash
+```
+
+如需固定到其它安装根目录，可以显式指定 `LSP_BRIDGE_INSTALL_DIR`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/install.sh | LSP_BRIDGE_INSTALL_DIR="$HOME/lsp-bridge-install" bash
 ```
 
 安装完成后确认命令可用：
 
 ```bash
-./bin/lsp-bridge
+lsp-bridge
 ```
 
 如果当前 shell 还没有加载安装脚本写入的环境变量，可以临时执行：
 
 ```bash
-export LSP_BRIDGE_HOME="$(pwd)"
+export LSP_BRIDGE_HOME="$HOME/.local"
 export PATH="$LSP_BRIDGE_HOME/bin:$PATH"
 ```
 

@@ -2,7 +2,14 @@
 set -euo pipefail
 
 REPO="${LSP_BRIDGE_REPO:-muidea/lsp-bridge}"
-INSTALL_ROOT="${LSP_BRIDGE_INSTALL_DIR:-$(pwd)}"
+if [ -n "${LSP_BRIDGE_INSTALL_DIR:-}" ]; then
+  INSTALL_ROOT="$LSP_BRIDGE_INSTALL_DIR"
+elif [ -n "${HOME:-}" ]; then
+  INSTALL_ROOT="${HOME}/.local"
+else
+  printf '[lsp-bridge install] error: HOME is required when LSP_BRIDGE_INSTALL_DIR is not set\n' >&2
+  exit 1
+fi
 VERSION="${LSP_BRIDGE_VERSION:-latest}"
 INSTALL_PYRIGHT="${INSTALL_PYRIGHT:-1}"
 INSTALL_GOPLS="${INSTALL_GOPLS:-1}"

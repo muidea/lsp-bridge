@@ -37,32 +37,32 @@ go run -buildvcs=false ./cmd/lsp-bridge
 
 ## 在线安装
 
-安装脚本会自动检测 GitHub 最新发布版本，下载当前系统和架构匹配的二进制包，并安装到执行命令时的当前目录：
+安装脚本会自动检测 GitHub 最新发布版本，下载当前系统和架构匹配的二进制包。未指定安装目录时，默认安装到当前用户本地目录 `$HOME/.local`，二进制落在 `$HOME/.local/bin`：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/install.sh | bash
 ```
 
-安装后的目录结构：
+默认安装后的目录结构：
 
 ```text
-./bin/lsp-bridge
-./bin/pyright-langserver
-./bin/gopls
-./.deps/node/
+$HOME/.local/bin/lsp-bridge
+$HOME/.local/bin/pyright-langserver
+$HOME/.local/bin/gopls
+$HOME/.local/.deps/node/
 ```
 
 安装器会自动处理缺失依赖：
 
 - 缺少 `curl`/`wget`、`tar` 等基础工具时，使用系统包管理器安装
-- 缺少 `pyright-langserver` 时，安装 `node`/`npm` 并在当前目录下安装 `pyright`
-- 缺少 `gopls` 时，安装 `go` 并把 `gopls` 安装到当前目录的 `bin`
+- 缺少 `pyright-langserver` 时，安装 `node`/`npm` 并在安装根目录下安装 `pyright`
+- 缺少 `gopls` 时，安装 `go` 并把 `gopls` 安装到安装根目录的 `bin`
 - 自动写入 `LSP_BRIDGE_HOME` 和 `PATH` 到当前用户的 shell 配置文件
 
 可选环境变量：
 
 ```bash
-LSP_BRIDGE_INSTALL_DIR=./lsp-bridge-install bash scripts/install.sh
+LSP_BRIDGE_INSTALL_DIR="$HOME/lsp-bridge-install" bash scripts/install.sh
 LSP_BRIDGE_VERSION=v0.1.0 bash scripts/install.sh
 INSTALL_PYRIGHT=0 INSTALL_GOPLS=0 bash scripts/install.sh
 ```
