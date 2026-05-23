@@ -16,6 +16,15 @@ curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/in
 curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/install.sh | LSP_BRIDGE_INSTALL_DIR="$HOME/lsp-bridge-install" bash
 ```
 
+安装器支持的常用环境变量：
+
+```bash
+LSP_BRIDGE_INSTALL_DIR="$HOME/lsp-bridge-install"
+LSP_BRIDGE_VERSION=v0.1.2
+INSTALL_PYRIGHT=0
+INSTALL_GOPLS=0
+```
+
 安装完成后确认命令可用：
 
 ```bash
