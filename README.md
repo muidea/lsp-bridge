@@ -67,8 +67,6 @@ curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/in
 - `lsp_shutdown`
 - `lsp_repair`
 
-兼容旧工具名：`initialize_lsp`、`get_definition`、`get_hover`。
-
 ## 状态与修复
 
 - `lsp_status` 返回当前实例状态，并检查后端 LSP server 是否存在、是否正在运行。

@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/in
 
 ```bash
 LSP_BRIDGE_INSTALL_DIR="$HOME/lsp-bridge-install"
-LSP_BRIDGE_VERSION=v0.1.2
+LSP_BRIDGE_VERSION=v0.1.4
 INSTALL_PYRIGHT=0
 INSTALL_GOPLS=0
 ```
@@ -192,6 +192,8 @@ LSP_BRIDGE_CONFIG=./mcp-config.json lsp-bridge
 ```
 
 工具名：`lsp_references`
+
+对外 MCP tool 统一使用 `lsp_` 前缀工具名。
 
 ## 6. 输出格式
 

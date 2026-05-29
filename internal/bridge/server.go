@@ -33,10 +33,6 @@ func Run(logger *log.Logger) error {
 	s.AddTool(shutdownTool(), shutdownHandler(manager))
 	s.AddTool(repairTool(), repairHandler(manager))
 
-	s.AddTool(initializeTool("initialize_lsp"), initializeHandler(manager))
-	s.AddTool(definitionTool("get_definition"), definitionHandler(manager))
-	s.AddTool(hoverTool("get_hover"), hoverHandler(manager))
-
 	return server.ServeStdio(s)
 }
 
