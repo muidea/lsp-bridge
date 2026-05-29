@@ -93,6 +93,52 @@ func TestFormatLocationsTruncates(t *testing.T) {
 	}
 }
 
+func TestConfigDefaultsAndOverrides(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "mcp-config.json")
+	content := []byte(`{
+		"runtime": {
+			"idle_ttl_sec": 7,
+			"max_instances": 2
+		},
+		"performance": {
+			"default_timeout_ms": 99,
+			"max_references": 3
+		},
+		"languages": {
+			"gopls": {
+				"command": ["fake-gopls"]
+			}
+		}
+	}`)
+	if err := os.WriteFile(configPath, content, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("LSP_BRIDGE_CONFIG", configPath)
+	manager := NewManager(nil)
+	defer manager.Close()
+
+	if manager.runtimeConfig().IdleTTLSec != 7 {
+		t.Fatalf("idle ttl = %d, want 7", manager.runtimeConfig().IdleTTLSec)
+	}
+	if manager.runtimeConfig().MaxInstances != 2 {
+		t.Fatalf("max instances = %d, want 2", manager.runtimeConfig().MaxInstances)
+	}
+	if manager.runtimeConfig().MaxRestarts != 3 {
+		t.Fatalf("max restarts default = %d, want 3", manager.runtimeConfig().MaxRestarts)
+	}
+	if manager.performanceConfig().DefaultTimeoutMs != 99 {
+		t.Fatalf("default timeout = %d, want 99", manager.performanceConfig().DefaultTimeoutMs)
+	}
+	if manager.performanceConfig().MaxReferences != 3 {
+		t.Fatalf("max references = %d, want 3", manager.performanceConfig().MaxReferences)
+	}
+	if _, ok := manager.config.Languages["go"]; !ok {
+		t.Fatalf("expected normalized go language config")
+	}
+}
+
 func TestManagerRestartsExitedLSP(t *testing.T) {
 	root := t.TempDir()
 	filePath := filepath.Join(root, "main.go")
@@ -150,6 +196,200 @@ func TestManagerRestartsExitedLSP(t *testing.T) {
 	}
 	if len(defs) != 1 || defs[0].Range.Start.Line != 2 {
 		t.Fatalf("unexpected definition after restart: %+v", defs)
+	}
+}
+
+func TestManagerStatusShutdownAndReap(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "main.go")
+	if err := os.WriteFile(filePath, []byte("package main\n\nvar value int\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	configPath := filepath.Join(root, "mcp-config.json")
+	config := ConfigFile{
+		Runtime: RuntimeConfig{
+			IdleTTLSec:   1,
+			MaxInstances: 1,
+		},
+		Languages: map[string]LanguageConfig{
+			"go": {
+				Command: []string{os.Args[0], "-test.run", "TestHelperProcessFakeLSPBridge", "--"},
+				Env: map[string]string{
+					"GO_WANT_FAKE_LSP_BRIDGE": "1",
+				},
+			},
+		},
+	}
+	content, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, content, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("LSP_BRIDGE_CONFIG", configPath)
+	manager := NewManager(nil)
+	defer manager.Close()
+
+	now := time.Now()
+	manager.defaultsNow = func() time.Time { return now }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	instance, err := manager.Initialize(ctx, root, "go")
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	if err := instance.Client.EnsureDidOpen(filePath); err != nil {
+		t.Fatalf("didOpen failed: %v", err)
+	}
+
+	status := manager.Status()
+	if len(status) != 1 {
+		t.Fatalf("status len = %d, want 1", len(status))
+	}
+	if status[0].OpenFiles != 1 {
+		t.Fatalf("open files = %d, want 1", status[0].OpenFiles)
+	}
+	if !status[0].Server.Found {
+		t.Fatalf("expected fake lsp command to be found: %+v", status[0].Server)
+	}
+	if !status[0].Server.Running || !status[0].Server.Healthy {
+		t.Fatalf("expected running healthy server: %+v", status[0].Server)
+	}
+
+	now = now.Add(2 * time.Second)
+	manager.reap()
+	if got := manager.Status(); len(got) != 0 {
+		t.Fatalf("expected idle instance to be reaped, got %d", len(got))
+	}
+
+	if _, err := manager.Initialize(ctx, root, "go"); err != nil {
+		t.Fatalf("Initialize after reap failed: %v", err)
+	}
+	closed, err := manager.Shutdown(root, "go", false)
+	if err != nil {
+		t.Fatalf("shutdown failed: %v", err)
+	}
+	if closed != 1 {
+		t.Fatalf("closed = %d, want 1", closed)
+	}
+	if got := manager.Status(); len(got) != 0 {
+		t.Fatalf("expected no instances after shutdown, got %d", len(got))
+	}
+}
+
+func TestDependencyStatusReportsMissingServerAndRepairAction(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "mcp-config.json")
+	config := ConfigFile{
+		Languages: map[string]LanguageConfig{
+			"go": {
+				Command: []string{"definitely-missing-lsp-bridge-test-server"},
+			},
+		},
+	}
+	content, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, content, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("LSP_BRIDGE_CONFIG", configPath)
+	manager := NewManager(nil)
+	defer manager.Close()
+
+	status, err := manager.DependencyStatus(root, "go")
+	if err != nil {
+		t.Fatalf("dependency status failed: %v", err)
+	}
+	if status.State != "missing" {
+		t.Fatalf("state = %q, want missing", status.State)
+	}
+	if status.Server.Found {
+		t.Fatalf("server unexpectedly found: %+v", status.Server)
+	}
+	if len(status.Repair) == 0 {
+		t.Fatal("expected repair actions")
+	}
+	if status.Repair[0].Automatic {
+		t.Fatalf("install repair must not be automatic: %+v", status.Repair[0])
+	}
+}
+
+func TestRepairRestartsExitedInstance(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "main.go")
+	if err := os.WriteFile(filePath, []byte("package main\n\nvar value int\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	marker := filepath.Join(root, "exit-once-marker")
+	configPath := filepath.Join(root, "mcp-config.json")
+	config := ConfigFile{
+		Runtime: RuntimeConfig{
+			RestartBackoffMs: 1,
+		},
+		Languages: map[string]LanguageConfig{
+			"go": {
+				Command: []string{os.Args[0], "-test.run", "TestHelperProcessFakeLSPBridge", "--"},
+				Env: map[string]string{
+					"GO_WANT_FAKE_LSP_BRIDGE":   "1",
+					"FAKE_LSP_EXIT_ONCE_MARKER": marker,
+				},
+			},
+		},
+	}
+	content, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, content, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("LSP_BRIDGE_CONFIG", configPath)
+	manager := NewManager(nil)
+	defer manager.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	instance, err := manager.Initialize(ctx, root, "go")
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	waitExited(t, instance.Client)
+
+	plan := manager.Repair(ctx, root, "go", false, false)
+	if len(plan.Actions) == 0 {
+		t.Fatal("expected repair actions")
+	}
+	foundRestart := false
+	for _, action := range plan.Actions {
+		if action.ID == "restart_instance" && action.Automatic {
+			foundRestart = true
+		}
+	}
+	if !foundRestart {
+		t.Fatalf("expected automatic restart action: %+v", plan.Actions)
+	}
+
+	report := manager.Repair(ctx, root, "go", true, false)
+	if len(report.Results) == 0 || !report.Results[0].Success {
+		t.Fatalf("expected successful repair result: %+v", report.Results)
+	}
+	restarted, err := manager.ClientForPath(ctx, filePath, "go", "")
+	if err != nil {
+		t.Fatalf("ClientForPath after repair failed: %v", err)
+	}
+	if restarted.Client.Exited() {
+		t.Fatal("expected repaired instance to be running")
 	}
 }
 

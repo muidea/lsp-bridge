@@ -51,6 +51,7 @@ curl -fsSL https://raw.githubusercontent.com/muidea/lsp-bridge/master/scripts/in
 
 - 外部接入和使用：[docs/integration.md](docs/integration.md)
 - LLM 工具调用建议：[docs/llm-system-prompt.md](docs/llm-system-prompt.md)
+- LSP 运行时性能与生命周期：[docs/lsp-runtime-performance.md](docs/lsp-runtime-performance.md)
 - 本地开发和验证：[docs/development.md](docs/development.md)
 - 发布流程：[docs/release.md](docs/release.md)
 - DoD 状态：[docs/dod-status.md](docs/dod-status.md)

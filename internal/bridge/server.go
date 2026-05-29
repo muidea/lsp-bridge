@@ -14,8 +14,6 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-const maxReferences = 10
-
 func Run(logger *log.Logger) error {
 	manager := NewManager(logger)
 	defer manager.Close()
@@ -31,6 +29,9 @@ func Run(logger *log.Logger) error {
 	s.AddTool(diagnosticsTool(), diagnosticsHandler(manager))
 	s.AddTool(referencesTool(), referencesHandler(manager))
 	s.AddTool(syncTool(), syncHandler(manager))
+	s.AddTool(statusTool(), statusHandler(manager))
+	s.AddTool(shutdownTool(), shutdownHandler(manager))
+	s.AddTool(repairTool(), repairHandler(manager))
 
 	s.AddTool(initializeTool("initialize_lsp"), initializeHandler(manager))
 	s.AddTool(definitionTool("get_definition"), definitionHandler(manager))
@@ -91,7 +92,7 @@ func diagnosticsTool() mcp.Tool {
 func referencesTool() mcp.Tool {
 	return mcp.NewTool(
 		"lsp_references",
-		mcp.WithDescription("返回指定符号的引用位置，最多返回 10 条并标记截断"),
+		mcp.WithDescription("返回指定符号的引用位置，并按配置限制数量和标记截断"),
 		mcp.WithString("path", mcp.Required(), mcp.Description("源码文件路径")),
 		mcp.WithNumber("line", mcp.Required(), mcp.Description("0-based 行号")),
 		mcp.WithNumber("col", mcp.Required(), mcp.Description("0-based 列号")),
@@ -108,6 +109,36 @@ func syncTool() mcp.Tool {
 		mcp.WithString("content", mcp.Required(), mcp.Description("完整文件内容")),
 		mcp.WithString("lang_id", mcp.Description("可选语言 ID，默认按文件扩展名推断")),
 		mcp.WithString("root_path", mcp.Description("可选项目根目录；缺省时从已初始化实例中按路径匹配")),
+	)
+}
+
+func statusTool() mcp.Tool {
+	return mcp.NewTool(
+		"lsp_status",
+		mcp.WithDescription("返回当前 LSP 实例和后端 LSP server 依赖状态；可传 root_path/lang_id 检查未启动实例的依赖"),
+		mcp.WithString("root_path", mcp.Description("可选项目根目录，用于检查指定依赖")),
+		mcp.WithString("lang_id", mcp.Description("可选语言 ID，用于检查指定依赖")),
+	)
+}
+
+func shutdownTool() mcp.Tool {
+	return mcp.NewTool(
+		"lsp_shutdown",
+		mcp.WithDescription("关闭指定 LSP 实例，或使用 all=true 关闭全部实例"),
+		mcp.WithBoolean("all", mcp.Description("关闭全部实例")),
+		mcp.WithString("root_path", mcp.Description("要关闭的项目根目录")),
+		mcp.WithString("lang_id", mcp.Description("要关闭的语言 ID")),
+	)
+}
+
+func repairTool() mcp.Tool {
+	return mcp.NewTool(
+		"lsp_repair",
+		mcp.WithDescription("生成 LSP 依赖和实例修复建议；apply=true 时仅执行安全的实例重启修复"),
+		mcp.WithBoolean("apply", mcp.Description("是否执行自动修复；默认 false，只返回修复建议")),
+		mcp.WithBoolean("all", mcp.Description("检查全部已知实例")),
+		mcp.WithString("root_path", mcp.Description("要检查或修复的项目根目录")),
+		mcp.WithString("lang_id", mcp.Description("要检查或修复的语言 ID")),
 	)
 }
 
@@ -139,6 +170,7 @@ func initializeHandler(manager *Manager) server.ToolHandlerFunc {
 
 func definitionHandler(manager *Manager) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		start := time.Now()
 		filePath, line, col, langID, rootPath, err := positionArgs(request)
 		if err != nil {
 			return toolError(err), nil
@@ -148,19 +180,27 @@ func definitionHandler(manager *Manager) server.ToolHandlerFunc {
 		if err != nil {
 			return toolError(err), nil
 		}
+		done := manager.Begin(instance)
+		defer done()
 
-		locations, err := instance.Client.Definition(ctx, filePath, line, col)
+		queryCtx, cancel := manager.toolContext(ctx)
+		defer cancel()
+		locations, err := instance.Client.Definition(queryCtx, filePath, line, col)
 		if err != nil {
 			return toolError(err), nil
 		}
 		return jsonResult(map[string]any{
-			"items": formatLocations(locations, 0).Items,
+			"items":      formatLocations(locations, 0).Items,
+			"complete":   true,
+			"truncated":  false,
+			"elapsed_ms": elapsedMs(start),
 		})
 	}
 }
 
 func hoverHandler(manager *Manager) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		start := time.Now()
 		filePath, line, col, langID, rootPath, err := positionArgs(request)
 		if err != nil {
 			return toolError(err), nil
@@ -170,8 +210,12 @@ func hoverHandler(manager *Manager) server.ToolHandlerFunc {
 		if err != nil {
 			return toolError(err), nil
 		}
+		done := manager.Begin(instance)
+		defer done()
 
-		hover, err := instance.Client.Hover(ctx, filePath, line, col)
+		queryCtx, cancel := manager.toolContext(ctx)
+		defer cancel()
+		hover, err := instance.Client.Hover(queryCtx, filePath, line, col)
 		if err != nil {
 			return toolError(err), nil
 		}
@@ -179,12 +223,20 @@ func hoverHandler(manager *Manager) server.ToolHandlerFunc {
 			return mcp.NewToolResultText(""), nil
 		}
 
-		return mcp.NewToolResultText(formatHover(hover)), nil
+		text, truncated := truncateString(formatHover(hover), manager.performanceConfig().MaxHoverChars)
+		return jsonResult(map[string]any{
+			"text":       text,
+			"complete":   !truncated,
+			"truncated":  truncated,
+			"limit":      manager.performanceConfig().MaxHoverChars,
+			"elapsed_ms": elapsedMs(start),
+		})
 	}
 }
 
 func diagnosticsHandler(manager *Manager) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		start := time.Now()
 		filePath, err := getFirstStringArg(request, "path", "file_path")
 		if err != nil {
 			return toolError(err), nil
@@ -196,19 +248,34 @@ func diagnosticsHandler(manager *Manager) server.ToolHandlerFunc {
 		if err != nil {
 			return toolError(err), nil
 		}
+		done := manager.Begin(instance)
+		defer done()
 		if err := instance.Client.EnsureDidOpen(filePath); err != nil {
 			return toolError(err), nil
 		}
 
-		items := waitDiagnostics(ctx, instance.Client, filePath)
+		queryCtx, cancel := manager.toolContext(ctx)
+		defer cancel()
+		items := waitDiagnostics(queryCtx, instance.Client, filePath)
+		limit := manager.performanceConfig().MaxDiagnostics
+		truncated := false
+		if limit > 0 && len(items) > limit {
+			items = items[:limit]
+			truncated = true
+		}
 		return jsonResult(map[string]any{
-			"items": formatDiagnostics(items),
+			"items":      formatDiagnostics(items),
+			"complete":   !truncated,
+			"truncated":  truncated,
+			"limit":      limit,
+			"elapsed_ms": elapsedMs(start),
 		})
 	}
 }
 
 func referencesHandler(manager *Manager) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		start := time.Now()
 		filePath, line, col, langID, rootPath, err := positionArgs(request)
 		if err != nil {
 			return toolError(err), nil
@@ -218,23 +285,31 @@ func referencesHandler(manager *Manager) server.ToolHandlerFunc {
 		if err != nil {
 			return toolError(err), nil
 		}
+		done := manager.Begin(instance)
+		defer done()
 
-		locations, err := instance.Client.References(ctx, filePath, line, col)
+		queryCtx, cancel := manager.toolContext(ctx)
+		defer cancel()
+		locations, err := instance.Client.References(queryCtx, filePath, line, col)
 		if err != nil {
 			return toolError(err), nil
 		}
-		result := formatLocations(locations, maxReferences)
+		limit := manager.performanceConfig().MaxReferences
+		result := formatLocations(locations, limit)
 		return jsonResult(map[string]any{
-			"items":     result.Items,
-			"total":     len(locations),
-			"truncated": result.Truncated,
-			"limit":     maxReferences,
+			"items":      result.Items,
+			"total":      len(locations),
+			"complete":   !result.Truncated,
+			"truncated":  result.Truncated,
+			"limit":      limit,
+			"elapsed_ms": elapsedMs(start),
 		})
 	}
 }
 
 func syncHandler(manager *Manager) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		start := time.Now()
 		filePath, err := getFirstStringArg(request, "path", "file_path")
 		if err != nil {
 			return toolError(err), nil
@@ -250,15 +325,73 @@ func syncHandler(manager *Manager) server.ToolHandlerFunc {
 		if err != nil {
 			return toolError(err), nil
 		}
+		done := manager.Begin(instance)
+		defer done()
 		if err := instance.Client.SyncContent(filePath, content); err != nil {
 			return toolError(err), nil
 		}
 
 		return jsonResult(map[string]any{
-			"path":    filePath,
-			"lang_id": instance.LangID,
-			"status":  "synced",
+			"path":       filePath,
+			"lang_id":    instance.LangID,
+			"status":     "synced",
+			"elapsed_ms": elapsedMs(start),
 		})
+	}
+}
+
+func statusHandler(manager *Manager) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		rootPath := getOptionalStringArg(request, "root_path", "")
+		langID := getOptionalStringArg(request, "lang_id", "")
+		if strings.TrimSpace(rootPath) != "" || strings.TrimSpace(langID) != "" {
+			if strings.TrimSpace(rootPath) == "" || strings.TrimSpace(langID) == "" {
+				return toolError(fmt.Errorf("root_path and lang_id must be provided together")), nil
+			}
+			status, err := manager.DependencyStatus(rootPath, langID)
+			if err != nil {
+				return toolError(err), nil
+			}
+			return jsonResult(map[string]any{
+				"instances": []InstanceStatus{status},
+			})
+		}
+		return jsonResult(map[string]any{
+			"instances": manager.Status(),
+		})
+	}
+}
+
+func shutdownHandler(manager *Manager) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		all := getOptionalBoolArg(request, "all", false)
+		rootPath := getOptionalStringArg(request, "root_path", "")
+		langID := getOptionalStringArg(request, "lang_id", "")
+		count, err := manager.Shutdown(rootPath, langID, all)
+		if err != nil {
+			return toolError(err), nil
+		}
+		return jsonResult(map[string]any{
+			"closed": count,
+			"status": "shutdown",
+		})
+	}
+}
+
+func repairHandler(manager *Manager) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		apply := getOptionalBoolArg(request, "apply", false)
+		all := getOptionalBoolArg(request, "all", false)
+		rootPath := getOptionalStringArg(request, "root_path", "")
+		langID := getOptionalStringArg(request, "lang_id", "")
+		if !all && strings.TrimSpace(rootPath) == "" {
+			return toolError(fmt.Errorf("root_path is required unless all is true")), nil
+		}
+		if !all && strings.TrimSpace(langID) == "" {
+			return toolError(fmt.Errorf("lang_id is required unless all is true")), nil
+		}
+		report := manager.Repair(ctx, rootPath, langID, apply, all)
+		return jsonResult(report)
 	}
 }
 
@@ -313,6 +446,18 @@ func getOptionalStringArg(request mcp.CallToolRequest, name, fallback string) st
 	}
 	value, ok := raw.(string)
 	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func getOptionalBoolArg(request mcp.CallToolRequest, name string, fallback bool) bool {
+	raw, ok := request.Params.Arguments[name]
+	if !ok {
+		return fallback
+	}
+	value, ok := raw.(bool)
+	if !ok {
 		return fallback
 	}
 	return value
@@ -392,6 +537,17 @@ func formatHover(hover *lsp.Hover) string {
 		return ""
 	}
 	return string(buf)
+}
+
+func truncateString(value string, limit int) (string, bool) {
+	if limit <= 0 || len(value) <= limit {
+		return value, false
+	}
+	return value[:limit], true
+}
+
+func elapsedMs(start time.Time) int64 {
+	return time.Since(start).Milliseconds()
 }
 
 type formattedLocations struct {

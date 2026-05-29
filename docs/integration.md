@@ -205,18 +205,34 @@ LSP_BRIDGE_CONFIG=./mcp-config.json lsp-bridge
       "line": 10,
       "col": 5
     }
-  ]
+  ],
+  "complete": true,
+  "truncated": false,
+  "elapsed_ms": 12
 }
 ```
 
-`lsp_references` 最多返回 10 条：
+`lsp_hover` 返回文本和截断信息：
+
+```json
+{
+  "text": "func Example() string",
+  "complete": true,
+  "truncated": false,
+  "limit": 4000,
+  "elapsed_ms": 8
+}
+```
+
+`lsp_references` 默认最多返回 50 条，可通过 `performance.max_references` 配置：
 
 ```json
 {
   "items": [],
   "total": 18,
   "truncated": true,
-  "limit": 10
+  "limit": 50,
+  "elapsed_ms": 35
 }
 ```
 
@@ -232,7 +248,71 @@ LSP_BRIDGE_CONFIG=./mcp-config.json lsp-bridge
       "source": "compiler",
       "message": "expected ';'"
     }
+  ],
+  "complete": true,
+  "truncated": false,
+  "limit": 100,
+  "elapsed_ms": 52
+}
+```
+
+`lsp_status` 返回当前 LSP 实例：
+
+```json
+{
+  "instances": [
+    {
+      "root_path": "<project-root>",
+      "lang_id": "go",
+      "state": "ready",
+      "pid": 12345,
+      "idle_sec": 12,
+      "open_files": 2,
+      "restart_count": 0,
+      "active_requests": 0,
+      "server": {
+        "command": ["gopls", "serve"],
+        "found": true,
+        "path": "/home/user/go/bin/gopls",
+        "running": true,
+        "healthy": true
+      }
+    }
   ]
+}
+```
+
+`lsp_shutdown` 可以关闭指定实例或全部实例：
+
+```json
+{
+  "root_path": "<project-root>",
+  "lang_id": "go"
+}
+```
+
+```json
+{
+  "all": true
+}
+```
+
+`lsp_repair` 返回修复建议；默认不执行安装或配置修改：
+
+```json
+{
+  "root_path": "<project-root>",
+  "lang_id": "go"
+}
+```
+
+如果已有实例进程退出，可用 `apply=true` 执行安全重启：
+
+```json
+{
+  "root_path": "<project-root>",
+  "lang_id": "go",
+  "apply": true
 }
 ```
 

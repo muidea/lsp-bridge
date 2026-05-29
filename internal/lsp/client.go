@@ -121,6 +121,12 @@ func (c *Client) PID() int {
 	return c.cmd.Process.Pid
 }
 
+func (c *Client) OpenFileCount() int {
+	c.openedMu.Lock()
+	defer c.openedMu.Unlock()
+	return len(c.opened)
+}
+
 func (c *Client) Exited() bool {
 	return c.exited.Load()
 }
